@@ -2,9 +2,14 @@ steps:
   - name: build
     image: golang:1.23
     command: go build ./...
+    timeout: 5m
   - name: test
     image: golang:1.23
-    command: go test ./... -v
+    command: go test -v ./...
+    timeout: 5m
+    depends_on: [build]
   - name: vet
     image: golang:1.23
     command: go vet ./...
+    timeout: 2m
+    depends_on: [build]
