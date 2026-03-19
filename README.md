@@ -8,3 +8,6 @@ A simple Go project used to test [TemporalCI](https://github.com/AndreKurait/Tem
 - Go build, test, and vet
 - JUnit XML test result generation
 - Test summary reporting
+
+## Q3 Validation
+Testing TemporalCI Q1-Q3 features end-to-end.
