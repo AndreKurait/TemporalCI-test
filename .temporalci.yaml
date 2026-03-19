@@ -1,15 +1,32 @@
 steps:
+  # Stage 1: Build (runs first)
   - name: build
     image: golang:1.23
-    command: go build ./...
+    command: go build -v ./...
     timeout: 5m
-  - name: test
+
+  # Stage 2: These run in parallel after build
+  - name: unit-test
     image: golang:1.23
-    command: go test -v ./...
+    command: go test -v -count=1 ./...
     timeout: 5m
     depends_on: [build]
+
   - name: vet
     image: golang:1.23
     command: go vet ./...
     timeout: 2m
     depends_on: [build]
+
+  - name: format-check
+    image: golang:1.23
+    command: test -z "$(gofmt -l .)"
+    timeout: 1m
+    depends_on: [build]
+
+  # Stage 3: Runs after unit tests pass
+  - name: race-test
+    image: golang:1.23
+    command: go test -race -count=1 ./...
+    timeout: 5m
+    depends_on: [unit-test]
