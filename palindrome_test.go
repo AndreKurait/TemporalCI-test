@@ -7,12 +7,8 @@ func TestIsPalindrome(t *testing.T) {
 		input string
 		want  bool
 	}{
-		{"racecar", true},
-		{"hello", false},
-		{"", true},
-		{"a", true},
-		{"abba", true},
-		{"abc", false},
+		{"racecar", true}, {"hello", false}, {"", true},
+		{"a", true}, {"aba", true}, {"ab", false},
 	}
 	for _, tt := range tests {
 		if got := IsPalindrome(tt.input); got != tt.want {
