@@ -1,0 +1,9 @@
+# Delete merged feature branches automatically
+on:
+  pull_request:
+    types: [closed]
+
+steps:
+  - name: cleanup-branch
+    when: "$PR_MERGED == 'true' && $PR_HEAD_BRANCH startsWith 'feature/'"
+    command: "true"  # Handled by DeleteBranch activity

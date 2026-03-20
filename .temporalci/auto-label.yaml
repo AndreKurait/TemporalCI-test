@@ -1,0 +1,8 @@
+# Auto-label new issues — utility workflow (no CI pod needed)
+on:
+  issues:
+    types: [opened, reopened]
+
+steps:
+  - name: add-triage-label
+    command: "true"  # Handled by AddLabel activity
