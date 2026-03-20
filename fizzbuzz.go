@@ -16,3 +16,4 @@ func FizzBuzz(n int) string {
 		return strconv.Itoa(n)
 	}
 }
+
