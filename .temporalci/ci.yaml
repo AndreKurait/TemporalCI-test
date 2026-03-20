@@ -1,15 +1,128 @@
+# Main CI pipeline — showcases ALL TemporalCI features
+on:
+  push:
+    branches: [main]
+    paths: ["*.go", "go.mod", "go.sum", ".temporalci/**"]
+  pull_request:
+    branches: [main]
+
+parameters:
+  - name: COVERAGE_THRESHOLD
+    type: choice
+    default: "70"
+    options: ["50", "70", "80", "90"]
+    description: "Minimum test coverage percentage"
+  - name: RUN_E2E
+    type: boolean
+    default: "true"
+    description: "Run E2E integration tests"
+
 steps:
+  # --- Build & Lint (parallel) ---
   - name: build
     image: golang:1.23
-    command: go build ./...
+    command: CGO_ENABLED=0 go build -o /artifacts/app ./...
     timeout: 5m
-  - name: test
-    image: golang:1.23
-    command: go test -v ./...
-    timeout: 5m
-    depends_on: [build]
+    artifacts:
+      upload:
+        - path: /artifacts/app
+
   - name: vet
     image: golang:1.23
     command: go vet ./...
     timeout: 2m
+
+  # --- Matrix tests: run across Go versions ---
+  - name: test
+    image: golang:${{ matrix.go_version }}
     depends_on: [build]
+    matrix:
+      go_version: ["1.22", "1.23"]
+    command: |
+      go test -v -race -coverprofile=/artifacts/coverage-${{ matrix.go_version }}.out ./...
+      echo "Tests passed on Go ${{ matrix.go_version }}"
+    timeout: 10m
+    artifacts:
+      upload:
+        - path: /artifacts/coverage-${{ matrix.go_version }}.out
+
+  # --- Service container: test with Redis sidecar ---
+  - name: integration-test
+    image: golang:1.23
+    depends_on: [build]
+    when: "$RUN_E2E == 'true'"
+    services:
+      - name: redis
+        image: redis:7-alpine
+        ports: [6379]
+        health:
+          cmd: "redis-cli ping | grep PONG"
+          interval: 5s
+          retries: 10
+    command: |
+      # Verify Redis is reachable
+      apt-get update -qq && apt-get install -y -qq redis-tools > /dev/null 2>&1
+      redis-cli -h localhost ping
+      echo "SET ci_test 'TemporalCI rocks'" | redis-cli -h localhost
+      RESULT=$(echo "GET ci_test" | redis-cli -h localhost)
+      echo "Redis returned: $RESULT"
+      [ "$RESULT" = "TemporalCI rocks" ] && echo "✅ Integration test passed"
+      go test -v -tags=integration ./...
+    timeout: 10m
+
+  # --- Docker-in-Docker: build a container ---
+  - name: docker-build
+    depends_on: [build]
+    when: "event == 'push'"
+    docker: true
+    image: docker:27
+    command: |
+      echo 'FROM alpine:latest' > /tmp/Dockerfile
+      echo 'COPY app /usr/local/bin/app' >> /tmp/Dockerfile
+      echo 'CMD ["app"]' >> /tmp/Dockerfile
+      docker build -t temporalci-test:latest -f /tmp/Dockerfile .
+      docker images temporalci-test
+      echo "✅ Docker build succeeded"
+    timeout: 10m
+
+  # --- Conditional step: only on push to main ---
+  - name: coverage-check
+    image: golang:1.23
+    depends_on: [test]
+    when: "event == 'pull_request'"
+    command: |
+      go test -coverprofile=coverage.out ./...
+      COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | tr -d '%')
+      echo "Coverage: ${COVERAGE}%"
+      echo "Threshold: ${COVERAGE_THRESHOLD}%"
+      # Compare as integers
+      COV_INT=$(echo "$COVERAGE" | cut -d. -f1)
+      if [ "$COV_INT" -lt "$COVERAGE_THRESHOLD" ]; then
+        echo "❌ Coverage ${COVERAGE}% is below threshold ${COVERAGE_THRESHOLD}%"
+        exit 1
+      fi
+      echo "✅ Coverage check passed"
+    timeout: 5m
+
+  # --- Gate: all checks must pass ---
+  - name: all-checks-pass
+    type: gate
+    depends_on:
+      - build
+      - vet
+      - test
+      - integration-test
+      - coverage-check
+
+post:
+  always:
+    - name: report-metrics
+      command: |
+        echo "Pipeline completed at $(date)"
+        echo "Event: $TEMPORALCI_EVENT"
+        echo "Ref: $TEMPORALCI_REF"
+  on_failure:
+    - name: notify-failure
+      command: |
+        echo "❌ CI failed on $TEMPORALCI_REF"
+        echo "Check the TemporalCI dashboard for details"

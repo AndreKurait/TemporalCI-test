@@ -1,0 +1,51 @@
+# Release pipeline — triggered by tag push
+on:
+  push:
+    tags: ["v*"]
+
+parameters:
+  - name: DRY_RUN
+    type: boolean
+    default: "false"
+    description: "Skip actual publish, just build"
+
+steps:
+  - name: validate-tag
+    image: golang:1.23
+    command: |
+      echo "Release tag: $TEMPORALCI_TAG"
+      go build -ldflags "-X main.Version=$TEMPORALCI_TAG" -o /artifacts/app ./...
+      /artifacts/app --version 2>/dev/null || echo "Built with version $TEMPORALCI_TAG"
+    artifacts:
+      upload:
+        - path: /artifacts/app
+
+  - name: test-release
+    image: golang:1.23
+    depends_on: [validate-tag]
+    command: go test -v -count=1 ./...
+    timeout: 10m
+
+  - name: build-artifacts
+    image: golang:1.23
+    depends_on: [test-release]
+    matrix:
+      os: [linux, darwin]
+      arch: [amd64, arm64]
+    command: |
+      GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} \
+        go build -ldflags "-X main.Version=$TEMPORALCI_TAG" \
+        -o /artifacts/app-${{ matrix.os }}-${{ matrix.arch }} ./...
+      echo "✅ Built for ${{ matrix.os }}/${{ matrix.arch }}"
+    artifacts:
+      upload:
+        - path: /artifacts/app-${{ matrix.os }}-${{ matrix.arch }}
+
+  - name: create-release
+    depends_on: [build-artifacts]
+    when: "$DRY_RUN != 'true'"
+    command: "true"  # Handled by CreateRelease activity
+
+  - name: release-gate
+    type: gate
+    depends_on: [validate-tag, test-release, build-artifacts]

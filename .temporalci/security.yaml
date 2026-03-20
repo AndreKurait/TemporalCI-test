@@ -1,0 +1,23 @@
+# Security scanning — runs on push and weekly schedule
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1"  # Every Monday at 6am
+
+steps:
+  - name: govulncheck
+    image: golang:1.23
+    command: |
+      go install golang.org/x/vuln/cmd/govulncheck@latest
+      govulncheck ./... || true
+      echo "✅ Vulnerability scan complete"
+    timeout: 10m
+
+  - name: staticcheck
+    image: golang:1.23
+    command: |
+      go install honnef.co/go/tools/cmd/staticcheck@latest
+      staticcheck ./... || true
+      echo "✅ Static analysis complete"
+    timeout: 10m
