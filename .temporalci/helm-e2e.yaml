@@ -1,19 +1,16 @@
 # E2E: helm install → helm test on the host k8s cluster
-# Mirrors opensearch-migrations Jenkins minikube flow:
-# Jenkins runs on minikube and deploys to the same minikube cluster
+# Mirrors opensearch-migrations Jenkins minikube flow
 on:
   push:
     branches: [main]
 
 steps:
   - name: helm-deploy-test
-    image: alpine/helm:latest
+    image: alpine/k8s:1.31.4
     timeout: 10m
     command: |
       set -ex
       echo "=== Step 1: Verify cluster access ==="
-      # The CI pod runs inside minikube with a service account
-      # that has cluster-admin (from worker-rbac.yaml)
       kubectl get nodes
       kubectl get ns
 
@@ -34,4 +31,4 @@ steps:
 
       echo "=== Step 6: Cleanup ==="
       helm uninstall test-app -n helm-e2e-test
-      kubectl delete namespace helm-e2e-test
+      kubectl delete namespace helm-e2e-test --ignore-not-found
