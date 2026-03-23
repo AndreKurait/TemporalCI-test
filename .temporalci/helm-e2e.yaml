@@ -1,52 +1,37 @@
-# E2E: nested k8s (k3s direct) → helm install → helm test
-# Mirrors opensearch-migrations Jenkins minikube flow
+# E2E: helm install → helm test on the host k8s cluster
+# Mirrors opensearch-migrations Jenkins minikube flow:
+# Jenkins runs on minikube and deploys to the same minikube cluster
 on:
   push:
     branches: [main]
 
 steps:
-  - name: nested-k8s-helm-test
-    image: rancher/k3s:v1.31.5-k3s1
-    privileged: true
-    timeout: 15m
+  - name: helm-deploy-test
+    image: alpine/helm:latest
+    timeout: 10m
     command: |
       set -ex
-      echo "=== Step 1: Start k3s server ==="
-      # Start k3s in background
-      k3s server --disable=traefik --disable=metrics-server &
-      K3S_PID=$!
+      echo "=== Step 1: Verify cluster access ==="
+      # The CI pod runs inside minikube with a service account
+      # that has cluster-admin (from worker-rbac.yaml)
+      kubectl get nodes
+      kubectl get ns
 
-      # Wait for k3s to be ready
-      echo "Waiting for k3s to start..."
-      for i in $(seq 1 60); do
-        if k3s kubectl get nodes 2>/dev/null | grep -q " Ready"; then
-          echo "✅ k3s is ready!"
-          break
-        fi
-        echo "  Attempt $i: waiting..."
-        sleep 3
-      done
-      k3s kubectl get nodes
-
-      echo "=== Step 2: Install helm ==="
-      # k3s image is based on Alpine
-      apk add --no-cache curl bash openssl 2>/dev/null || true
-      curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | KUBECONFIG=/etc/rancher/k3s/k3s.yaml bash
-
-      export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+      echo "=== Step 2: Create test namespace ==="
+      kubectl create namespace helm-e2e-test --dry-run=client -o yaml | kubectl apply -f -
 
       echo "=== Step 3: Helm install ==="
-      helm install test-app ./chart --wait --timeout 120s
-      k3s kubectl get pods
-      k3s kubectl get svc
+      helm install test-app ./chart -n helm-e2e-test --wait --timeout 120s
+      kubectl get pods -n helm-e2e-test
+      kubectl get svc -n helm-e2e-test
 
       echo "=== Step 4: Helm test ==="
-      helm test test-app --timeout 120s
+      helm test test-app -n helm-e2e-test --timeout 120s
 
       echo "=== Step 5: Verify ==="
-      k3s kubectl get pods
-      echo "✅ Nested K8s + Helm test passed!"
+      kubectl get pods -n helm-e2e-test
+      echo "✅ Helm deploy + test passed!"
 
       echo "=== Step 6: Cleanup ==="
-      helm uninstall test-app
-      kill $K3S_PID 2>/dev/null || true
+      helm uninstall test-app -n helm-e2e-test
+      kubectl delete namespace helm-e2e-test
