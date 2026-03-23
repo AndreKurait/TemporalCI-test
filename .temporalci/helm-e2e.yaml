@@ -1,4 +1,4 @@
-# E2E: nested k8s (kind-in-docker) → helm install → helm test
+# E2E: nested k8s (k3d-in-docker) → helm install → helm test
 # Mirrors opensearch-migrations Jenkins minikube flow
 on:
   push:
@@ -23,11 +23,8 @@ steps:
       # Install helm
       curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-      # Install kind
-      ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-      curl -fsSL -o /usr/local/bin/kind \
-        "https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-${ARCH}"
-      chmod +x /usr/local/bin/kind
+      # Install k3d (works in DinD without systemd, unlike kind)
+      curl -fsSL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
 
       echo "=== Step 2: Wait for Docker daemon ==="
       for i in $(seq 1 30); do
@@ -37,8 +34,8 @@ steps:
       done
       docker info
 
-      echo "=== Step 3: Create kind cluster ==="
-      kind create cluster --name ci-test --wait 120s
+      echo "=== Step 3: Create k3d cluster ==="
+      k3d cluster create ci-test --wait --timeout 120s
       kubectl cluster-info
       kubectl get nodes
 
@@ -56,4 +53,4 @@ steps:
 
       echo "=== Step 7: Cleanup ==="
       helm uninstall test-app
-      kind delete cluster --name ci-test
+      k3d cluster delete ci-test
