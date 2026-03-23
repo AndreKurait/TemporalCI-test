@@ -36,6 +36,9 @@ steps:
 
       echo "=== Step 3: Create k3d cluster ==="
       k3d cluster create ci-test --wait --timeout 120s
+
+      # Use k3d kubeconfig explicitly (avoid inheriting pod's SA kubeconfig)
+      export KUBECONFIG=$(k3d kubeconfig write ci-test)
       kubectl cluster-info
       kubectl get nodes
 
