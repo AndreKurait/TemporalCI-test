@@ -1,4 +1,4 @@
-# E2E: nested k8s (k3d-in-docker) → helm install → helm test
+# E2E: nested k8s (k3s direct) → helm install → helm test
 # Mirrors opensearch-migrations Jenkins minikube flow
 on:
   push:
@@ -6,68 +6,47 @@ on:
 
 steps:
   - name: nested-k8s-helm-test
-    image: docker:27
-    docker: true
+    image: rancher/k3s:v1.31.5-k3s1
     privileged: true
     timeout: 15m
     command: |
       set -ex
-      echo "=== Step 1: Install tools ==="
-      apk add --no-cache curl bash
+      echo "=== Step 1: Start k3s server ==="
+      # Start k3s in background
+      k3s server --disable=traefik --disable=metrics-server &
+      K3S_PID=$!
 
-      # Install kubectl
-      curl -fsSL -o /usr/local/bin/kubectl \
-        "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')/kubectl"
-      chmod +x /usr/local/bin/kubectl
-
-      # Install helm
-      curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-
-      # Install k3d (works in DinD without systemd, unlike kind)
-      curl -fsSL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
-
-      echo "=== Step 2: Wait for Docker daemon ==="
-      for i in $(seq 1 30); do
-        docker info >/dev/null 2>&1 && break
-        echo "Waiting for Docker... ($i)"
-        sleep 2
-      done
-      docker info
-
-      echo "=== Step 3: Create k3d cluster ==="
-      k3d cluster create ci-test --wait --timeout 180s --no-lb
-
-      # Use k3d kubeconfig explicitly and unset in-cluster vars
-      export KUBECONFIG=$(k3d kubeconfig write ci-test)
-      unset KUBERNETES_SERVICE_HOST
-      unset KUBERNETES_SERVICE_PORT
-
-      # Wait for node to be ready
-      echo "Waiting for node to register..."
+      # Wait for k3s to be ready
+      echo "Waiting for k3s to start..."
       for i in $(seq 1 60); do
-        NODES=$(kubectl get nodes --no-headers 2>/dev/null | wc -l)
-        if [ "$NODES" -gt 0 ]; then
-          kubectl get nodes
+        if k3s kubectl get nodes 2>/dev/null | grep -q " Ready"; then
+          echo "✅ k3s is ready!"
           break
         fi
-        echo "  Attempt $i: no nodes yet..."
+        echo "  Attempt $i: waiting..."
         sleep 3
       done
-      kubectl wait --for=condition=Ready node --all --timeout=120s
-      kubectl cluster-info
+      k3s kubectl get nodes
 
-      echo "=== Step 4: Helm install ==="
-      helm install test-app ./chart -n default --wait --timeout 120s
-      kubectl get pods -n default
-      kubectl get svc -n default
+      echo "=== Step 2: Install helm ==="
+      # k3s image is based on Alpine
+      apk add --no-cache curl bash openssl 2>/dev/null || true
+      curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | KUBECONFIG=/etc/rancher/k3s/k3s.yaml bash
 
-      echo "=== Step 5: Helm test ==="
-      helm test test-app -n default --timeout 120s
+      export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
-      echo "=== Step 6: Verify ==="
-      kubectl get pods -n default
+      echo "=== Step 3: Helm install ==="
+      helm install test-app ./chart --wait --timeout 120s
+      k3s kubectl get pods
+      k3s kubectl get svc
+
+      echo "=== Step 4: Helm test ==="
+      helm test test-app --timeout 120s
+
+      echo "=== Step 5: Verify ==="
+      k3s kubectl get pods
       echo "✅ Nested K8s + Helm test passed!"
 
-      echo "=== Step 7: Cleanup ==="
-      helm uninstall test-app -n default
-      k3d cluster delete ci-test
+      echo "=== Step 6: Cleanup ==="
+      helm uninstall test-app
+      kill $K3S_PID 2>/dev/null || true
