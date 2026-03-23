@@ -1,0 +1,4 @@
+apiVersion: v2
+name: test-app
+description: Simple test app for TemporalCI E2E
+version: 0.1.0

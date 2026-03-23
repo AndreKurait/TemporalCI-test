@@ -1,0 +1,59 @@
+# E2E: nested k8s (kind-in-docker) → helm install → helm test
+# Mirrors opensearch-migrations Jenkins minikube flow
+on:
+  push:
+    branches: [main]
+
+steps:
+  - name: nested-k8s-helm-test
+    image: docker:27
+    docker: true
+    privileged: true
+    timeout: 15m
+    command: |
+      set -ex
+      echo "=== Step 1: Install tools ==="
+      apk add --no-cache curl bash
+
+      # Install kubectl
+      curl -fsSL -o /usr/local/bin/kubectl \
+        "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')/kubectl"
+      chmod +x /usr/local/bin/kubectl
+
+      # Install helm
+      curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+      # Install kind
+      ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+      curl -fsSL -o /usr/local/bin/kind \
+        "https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-${ARCH}"
+      chmod +x /usr/local/bin/kind
+
+      echo "=== Step 2: Wait for Docker daemon ==="
+      for i in $(seq 1 30); do
+        docker info >/dev/null 2>&1 && break
+        echo "Waiting for Docker... ($i)"
+        sleep 2
+      done
+      docker info
+
+      echo "=== Step 3: Create kind cluster ==="
+      kind create cluster --name ci-test --wait 120s
+      kubectl cluster-info
+      kubectl get nodes
+
+      echo "=== Step 4: Helm install ==="
+      helm install test-app ./chart --wait --timeout 120s
+      kubectl get pods
+      kubectl get svc
+
+      echo "=== Step 5: Helm test ==="
+      helm test test-app --timeout 120s
+
+      echo "=== Step 6: Verify ==="
+      kubectl get pods
+      echo "✅ Nested K8s + Helm test passed!"
+
+      echo "=== Step 7: Cleanup ==="
+      helm uninstall test-app
+      kind delete cluster --name ci-test

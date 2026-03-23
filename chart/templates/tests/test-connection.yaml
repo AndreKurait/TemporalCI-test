@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-test
+  labels:
+    app: {{ .Release.Name }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  restartPolicy: Never
+  containers:
+    - name: test
+      image: busybox:latest
+      command: ['sh', '-c']
+      args:
+        - |
+          echo "Testing {{ .Release.Name }}-svc..."
+          for i in $(seq 1 30); do
+            if wget -q -O- http://{{ .Release.Name }}-svc:80/ > /dev/null 2>&1; then
+              echo "✅ Service is reachable!"
+              exit 0
+            fi
+            echo "Attempt $i: waiting..."
+            sleep 2
+          done
+          echo "❌ Service not reachable after 60s"
+          exit 1
