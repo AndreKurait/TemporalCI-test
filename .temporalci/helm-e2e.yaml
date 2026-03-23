@@ -37,23 +37,25 @@ steps:
       echo "=== Step 3: Create k3d cluster ==="
       k3d cluster create ci-test --wait --timeout 120s
 
-      # Use k3d kubeconfig explicitly (avoid inheriting pod's SA kubeconfig)
+      # Use k3d kubeconfig explicitly and unset in-cluster vars
       export KUBECONFIG=$(k3d kubeconfig write ci-test)
+      unset KUBERNETES_SERVICE_HOST
+      unset KUBERNETES_SERVICE_PORT
       kubectl cluster-info
       kubectl get nodes
 
       echo "=== Step 4: Helm install ==="
-      helm install test-app ./chart --wait --timeout 120s
-      kubectl get pods
-      kubectl get svc
+      helm install test-app ./chart -n default --wait --timeout 120s
+      kubectl get pods -n default
+      kubectl get svc -n default
 
       echo "=== Step 5: Helm test ==="
-      helm test test-app --timeout 120s
+      helm test test-app -n default --timeout 120s
 
       echo "=== Step 6: Verify ==="
-      kubectl get pods
+      kubectl get pods -n default
       echo "✅ Nested K8s + Helm test passed!"
 
       echo "=== Step 7: Cleanup ==="
-      helm uninstall test-app
+      helm uninstall test-app -n default
       k3d cluster delete ci-test
