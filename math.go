@@ -61,3 +61,11 @@ func IsPrime(n int) bool {
 	return true
 }
 // triggered 2026-03-20T04:37:03Z
+
+// Gcd returns the greatest common divisor of a and b.
+func Gcd(a, b int) int {
+	for b != 0 {
+		a, b = b, a%b
+	}
+	return a
+}
